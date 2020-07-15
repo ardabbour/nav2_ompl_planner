@@ -21,14 +21,21 @@
 #include <memory>
 #include <string>
 
-#include "nav2_ompl_planner/diff_drive.hpp"
 #include "ompl/base/objectives/PathLengthOptimizationObjective.h"
-#include "ompl/control/ODESolver.h"
-#include "ompl/control/planners/est/EST.h"
-#include "ompl/control/planners/kpiece/KPIECE1.h"
-#include "ompl/control/planners/pdst/PDST.h"
-#include "ompl/control/planners/rrt/RRT.h"
-#include "ompl/control/planners/sst/SST.h"
+#include "ompl/geometric/planners/prm/LazyPRM.h"
+#include "ompl/geometric/planners/prm/LazyPRMstar.h"
+#include "ompl/geometric/planners/prm/PRM.h"
+#include "ompl/geometric/planners/prm/PRMstar.h"
+#include "ompl/geometric/planners/rrt/InformedRRTstar.h"
+#include "ompl/geometric/planners/rrt/LazyRRT.h"
+#include "ompl/geometric/planners/rrt/RRT.h"
+#include "ompl/geometric/planners/rrt/RRTConnect.h"
+#include "ompl/geometric/planners/rrt/RRTsharp.h"
+#include "ompl/geometric/planners/rrt/RRTstar.h"
+#include "ompl/geometric/planners/kpiece/BKPIECE1.h"
+#include "ompl/geometric/planners/kpiece/KPIECE1.h"
+#include "ompl/geometric/planners/kpiece/LBKPIECE1.h"
+#include "ompl/base/spaces/ReedsSheppStateSpace.h"
 #include "pluginlib/class_list_macros.hpp"
 
 PLUGINLIB_EXPORT_CLASS(nav2_ompl_planner::OMPLPlanner, nav2_core::GlobalPlanner)
@@ -46,12 +53,12 @@ namespace nav2_ompl_planner
               << std::endl;
     const double wx(s->as<ob::SE2StateSpace::StateType>()->getX());
     const double wy(s->as<ob::SE2StateSpace::StateType>()->getY());
-    unsigned int mx, my;
+    int mx, my;
     std::cout << "Checking wx: " << wx
               << std::endl;
     std::cout << "Checking wy: " << wy
               << std::endl;
-    costmap_.worldToMap(wx, wy, mx, my);
+    costmap_.worldToMapEnforceBounds(wx, wy, mx, my);
     std::cout << "Corresponding mx: " << mx
               << std::endl;
     std::cout << "Corresponding my: " << my
@@ -88,16 +95,8 @@ namespace nav2_ompl_planner
     // node_->get_parameter(name_ + ".footprint", footprint_);
 
     nav2_util::declare_parameter_if_not_declared(node_, name_ + ".timeout",
-                                                 rclcpp::ParameterValue(5.0));
-    node_->get_parameter(name_ + ".timeout", timeout_);
-
-    nav2_util::declare_parameter_if_not_declared(node_, name_ + ".max_lin_vel",
                                                  rclcpp::ParameterValue(1.0));
-    node_->get_parameter(name_ + ".max_lin_vel", max_lin_vel_);
-
-    nav2_util::declare_parameter_if_not_declared(node_, name_ + ".max_ang_vel",
-                                                 rclcpp::ParameterValue(0.5));
-    node_->get_parameter(name_ + ".max_ang_vel", max_ang_vel_);
+    node_->get_parameter(name_ + ".timeout", timeout_);
 
     nav2_util::declare_parameter_if_not_declared(node_, name_ + ".threshold",
                                                  rclcpp::ParameterValue(0.1));
@@ -111,21 +110,9 @@ namespace nav2_ompl_planner
                                                  rclcpp::ParameterValue(1.0));
     node_->get_parameter(name_ + ".length_objective_weight", length_objective_weight_);
 
-    nav2_util::declare_parameter_if_not_declared(node_, name_ + ".reverse_driving",
-                                                 rclcpp::ParameterValue(false));
-    node_->get_parameter(name_ + ".reverse_driving", reverse_driving_);
-
     nav2_util::declare_parameter_if_not_declared(node_, name_ + ".allow_unknown",
                                                  rclcpp::ParameterValue(false));
     node_->get_parameter(name_ + ".allow_unknown", allow_unknown_);
-
-    nav2_util::declare_parameter_if_not_declared(node_, name_ + ".use_ode_solver",
-                                                 rclcpp::ParameterValue(false));
-    node_->get_parameter(name_ + ".use_ode_solver", use_ode_solver_);
-
-    nav2_util::declare_parameter_if_not_declared(node_, name_ + ".solver_type",
-                                                 rclcpp::ParameterValue("adaptive"));
-    node_->get_parameter(name_ + ".solver_type", solver_type_);
 
     nav2_util::declare_parameter_if_not_declared(node_, name_ + ".planner_name",
                                                  rclcpp::ParameterValue("auto"));
@@ -159,29 +146,24 @@ namespace nav2_ompl_planner
     global_frame_ = costmap_ros_->getGlobalFrameID();
 
     // Assign the pose and control spaces
-    RCLCPP_INFO(node_->get_logger(), "Setting the pose space!");
-    pose_space_ = std::make_shared<ob::SE2StateSpace>();
-    RCLCPP_INFO(node_->get_logger(), "Setting the control space!");
-    control_space_ = std::make_shared<DiffDriveControlSpace>(pose_space_);
-    RCLCPP_INFO(node_->get_logger(), "Setting the bounds!");
+    RCLCPP_INFO(node_->get_logger(), "Setting the space!");
+    space_ = std::make_shared<ob::ReedsSheppStateSpace>();
     setBounds();
 
     // Create simple setup
     RCLCPP_INFO(node_->get_logger(), "Creating the simple setup!");
-    ss_ = std::make_shared<oc::SimpleSetup>(control_space_);
+    ss_ = std::make_shared<og::SimpleSetup>(space_);
     RCLCPP_INFO(node_->get_logger(), "Setting the state validity checker!");
     ss_->setStateValidityChecker([this](const ob::State *s) { return this->isStateValid(s); });
-    RCLCPP_INFO(node_->get_logger(), "Setting the propagator!");
-    setPropagator();
     RCLCPP_INFO(node_->get_logger(), "Setting the planner!");
     setPlanner();
 
     // Define and setup problem
     RCLCPP_INFO(node_->get_logger(), "Setting the start state");
-    ob::ScopedState<ob::SE2StateSpace> start_state(pose_space_);
+    ob::ScopedState<ob::SE2StateSpace> start_state(space_);
     poseStampedToScopedState(start, start_state);
     RCLCPP_INFO(node_->get_logger(), "Setting the goal state");
-    ob::ScopedState<ob::SE2StateSpace> goal_state(pose_space_);
+    ob::ScopedState<ob::SE2StateSpace> goal_state(space_);
     poseStampedToScopedState(goal, goal_state);
     RCLCPP_INFO(node_->get_logger(), "Setting the start and goal states to the simple setup");
     ss_->setStartAndGoalStates(start_state, goal_state, threshold_);
@@ -203,7 +185,7 @@ namespace nav2_ompl_planner
     {
       RCLCPP_INFO(node_->get_logger(), "A path was found.");
 
-      og::PathGeometric solution_path = ss_->getSolutionPath().asGeometric();
+      og::PathGeometric solution_path = ss_->getSolutionPath();
       path.header.stamp = node_->now();
       path.header.frame_id = global_frame_;
 
@@ -275,26 +257,36 @@ namespace nav2_ompl_planner
 
   void OMPLPlanner::setBounds()
   {
-    ob::RealVectorBounds pose_bounds(2);
-    pose_bounds.setLow(0, costmap_->getOriginX() - (costmap_->getSizeInMetersX() / 2));
-    pose_bounds.setHigh(0, costmap_->getOriginX() + (costmap_->getSizeInMetersX() / 2));
-    pose_bounds.setLow(1, costmap_->getOriginY() - (costmap_->getSizeInMetersY() / 2));
-    pose_bounds.setHigh(1, costmap_->getOriginY() + (costmap_->getSizeInMetersY() / 2));
-    pose_space_->as<ob::SE2StateSpace>()->setBounds(pose_bounds);
+    ob::RealVectorBounds bounds(2);
+    // costmap_ros_->
+    // const unsigned int max_mx(costmap_->getSizeInCellsX() - 1);
+    // const unsigned int max_my(costmap_->getSizeInCellsX() - 1);
+    double min_wx, max_wx, min_wy, max_wy;
+    costmap_->mapToWorld(0, 0, min_wx, min_wy);
+    // costmap_->mapToWorld(max_mx, max_my, max_wx, max_wy);
+    max_wx = (costmap_->getResolution() * (costmap_->getSizeInCellsX() - 1)) + costmap_->getOriginX();
+    max_wy = (costmap_->getResolution() * (costmap_->getSizeInCellsY() - 1)) + costmap_->getOriginY();
 
-    ob::RealVectorBounds control_bounds(2);
-    if (reverse_driving_)
-    {
-      control_bounds.setLow(0, -max_lin_vel_);
-    }
-    else
-    {
-      control_bounds.setLow(0, 0);
-    }
-    control_bounds.setHigh(0, max_lin_vel_);
-    control_bounds.setLow(1, -max_ang_vel_);
-    control_bounds.setHigh(1, max_ang_vel_);
-    control_space_->as<oc::RealVectorControlSpace>()->setBounds(control_bounds);
+    bounds.setLow(0, min_wx);
+    bounds.setHigh(0, max_wx);
+    bounds.setLow(1, min_wy);
+    bounds.setHigh(1, max_wy);
+
+    std::cout << "Max mx: " << max_wx
+              << std::endl;
+    std::cout << "Max my: " << max_wy
+              << std::endl;
+
+    std::cout << "Min wx: " << min_wx
+              << std::endl;
+    std::cout << "Max wx: " << max_wx
+              << std::endl;
+    std::cout << "Min wy: " << min_wy
+              << std::endl;
+    std::cout << "Max wy: " << max_wy
+              << std::endl;
+
+    space_->as<ob::SE2StateSpace>()->setBounds(bounds);
   }
 
   void OMPLPlanner::setPlanner()
@@ -302,73 +294,80 @@ namespace nav2_ompl_planner
     std::transform(planner_name_.begin(), planner_name_.end(), planner_name_.begin(),
                    [](unsigned char c) { return std::tolower(c); });
 
-    if (planner_name_ == "est")
+    if (planner_name_ == "auto")
     {
-      ss_->setPlanner(std::make_shared<oc::EST>(ss_->getSpaceInformation()));
+      RCLCPP_INFO(node_->get_logger(), "Setting planner to the OMPL default");
+      ss_->setPlanner(std::make_shared<og::LazyPRM>(ss_->getSpaceInformation()));
     }
-    else if (planner_name_ == "kpiece")
+    else if (planner_name_ == "lazyprm")
     {
-      ss_->setPlanner(std::make_shared<oc::KPIECE1>(ss_->getSpaceInformation()));
+      RCLCPP_INFO(node_->get_logger(), "Setting planner to Lazy PRM");
+      ss_->setPlanner(std::make_shared<og::LazyPRM>(ss_->getSpaceInformation()));
+    }
+    else if (planner_name_ == "lazyprmstar")
+    {
+      RCLCPP_INFO(node_->get_logger(), "Setting planner to Lazy PRM*");
+      ss_->setPlanner(std::make_shared<og::LazyPRMstar>(ss_->getSpaceInformation()));
+    }
+    else if (planner_name_ == "prm")
+    {
+      RCLCPP_INFO(node_->get_logger(), "Setting planner to PRM");
+      ss_->setPlanner(std::make_shared<og::PRM>(ss_->getSpaceInformation()));
+    }
+    else if (planner_name_ == "prmstar")
+    {
+      RCLCPP_INFO(node_->get_logger(), "Setting planner to PRM*");
+      ss_->setPlanner(std::make_shared<og::PRMstar>(ss_->getSpaceInformation()));
+    }
+    else if (planner_name_ == "informedrrtstar")
+    {
+      RCLCPP_INFO(node_->get_logger(), "Setting planner to Informed RRT*");
+      ss_->setPlanner(std::make_shared<og::InformedRRTstar>(ss_->getSpaceInformation()));
+    }
+    else if (planner_name_ == "lazyrrt")
+    {
+      RCLCPP_INFO(node_->get_logger(), "Setting planner to Lazy RRT");
+      ss_->setPlanner(std::make_shared<og::LazyRRT>(ss_->getSpaceInformation()));
     }
     else if (planner_name_ == "rrt")
     {
-      ss_->setPlanner(std::make_shared<oc::RRT>(ss_->getSpaceInformation()));
+      RCLCPP_INFO(node_->get_logger(), "Setting planner to RRT");
+      ss_->setPlanner(std::make_shared<og::RRT>(ss_->getSpaceInformation()));
     }
-    else if (planner_name_ == "pdst")
+    else if (planner_name_ == "rrtconnect")
     {
-      ss_->setPlanner(std::make_shared<oc::PDST>(ss_->getSpaceInformation()));
+      RCLCPP_INFO(node_->get_logger(), "Setting planner to RRTconnect");
+      ss_->setPlanner(std::make_shared<og::RRTConnect>(ss_->getSpaceInformation()));
     }
-    else if (planner_name_ == "sst")
+    else if (planner_name_ == "rrtsharp")
     {
-      ss_->setPlanner(std::make_shared<oc::SST>(ss_->getSpaceInformation()));
+      RCLCPP_INFO(node_->get_logger(), "Setting planner to RRT#.");
+      ss_->setPlanner(std::make_shared<og::RRTsharp>(ss_->getSpaceInformation()));
+    }
+    else if (planner_name_ == "rrtstar")
+    {
+      RCLCPP_INFO(node_->get_logger(), "Setting planner to RRT*.");
+      ss_->setPlanner(std::make_shared<og::RRTstar>(ss_->getSpaceInformation()));
+    }
+    else if (planner_name_ == "bkpiece")
+    {
+      RCLCPP_INFO(node_->get_logger(), "Setting planner to BKPIECE.");
+      ss_->setPlanner(std::make_shared<og::BKPIECE1>(ss_->getSpaceInformation()));
+    }
+    else if (planner_name_ == "kpiece")
+    {
+      RCLCPP_INFO(node_->get_logger(), "Setting planner to KPIECE.");
+      ss_->setPlanner(std::make_shared<og::KPIECE1>(ss_->getSpaceInformation()));
+    }
+    else if (planner_name_ == "lbkpiece")
+    {
+      RCLCPP_INFO(node_->get_logger(), "Setting planner to LBKPIECE.");
+      ss_->setPlanner(std::make_shared<og::LBKPIECE1>(ss_->getSpaceInformation()));
     }
     else
     {
       RCLCPP_INFO(node_->get_logger(), "Unknown planner chosen; will default to OMPL choice.");
       ss_->setPlanner(ob::PlannerPtr());
-    }
-  }
-
-  void OMPLPlanner::setPropagator()
-  {
-    if (use_ode_solver_)
-    {
-      std::transform(solver_type_.begin(), solver_type_.end(), solver_type_.begin(),
-                     [](unsigned char c) { return std::tolower(c); });
-
-      auto kinematic_ode_lambda = [this](const oc::ODESolver::StateType &q, const oc::Control *ctrl,
-                                         oc::ODESolver::StateType &qdot) {
-        diffDriveKinematicODE(q, ctrl, qdot);
-      };
-
-      oc::ODESolverPtr solver_ptr;
-      oc::SpaceInformationPtr si(ss_->getSpaceInformation());
-      if (solver_type_ == "basic")
-      {
-        solver_ptr = std::make_shared<oc::ODEBasicSolver<>>(si, kinematic_ode_lambda);
-        // TODO(Abdul Rahman Dabbour): investigate why build fails because of ODEAdaptiveSolver
-        // } else if (solver_type_ == "adaptive") {
-        //   solver_ptr = std::make_shared<oc::ODEAdaptiveSolver<>>(si, kinematic_ode_lambda);
-      }
-      else if (solver_type_ == "error")
-      {
-        solver_ptr = std::make_shared<oc::ODEErrorSolver<>>(si, kinematic_ode_lambda);
-      }
-      else
-      {
-        RCLCPP_INFO(node_->get_logger(), "Unknown solver type chosen; will default to basic.");
-        solver_ptr = std::make_shared<oc::ODEBasicSolver<>>(si, kinematic_ode_lambda);
-      }
-
-      ss_->setStatePropagator(oc::ODESolver::getStatePropagator(
-          solver_ptr, [this](const ob::State *s, const oc::Control *c, const double d, ob::State *r) {
-            diffDriveKinematicPostIntegration(s, c, d, r);
-          }));
-    }
-    else
-    {
-      ss_->setStatePropagator([this](const ob::State *s, const oc::Control *c, const double d,
-                                     ob::State *r) { return diffDrivePropagation(s, c, d, r); });
     }
   }
 
@@ -387,14 +386,14 @@ namespace nav2_ompl_planner
     //     state->as<ob::SE2StateSpace::StateType>()->getY(),
     //     start->as<ob::SE2StateSpace::StateType>()->getYaw(), footprint_);
 
-    unsigned int mx, my;
+    int mx, my;
     const double wx(state->as<ob::SE2StateSpace::StateType>()->getX());
     const double wy(state->as<ob::SE2StateSpace::StateType>()->getY());
     std::cout << "Checking wx: " << wx
               << std::endl;
     std::cout << "Checking wy: " << wy
               << std::endl;
-    costmap_->worldToMap(wx, wy, mx, my);
+    costmap_->worldToMapEnforceBounds(wx, wy, mx, my);
     std::cout << "Corresponding mx: " << mx
               << std::endl;
     std::cout << "Corresponding my: " << my

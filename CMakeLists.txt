@@ -41,7 +41,6 @@ set(dependencies
 
 add_library(${library_name} SHARED
   src/ompl_planner.cpp
-  src/diff_drive.cpp
 )
 
 target_include_directories(${library_name}

@@ -25,14 +25,12 @@
 #include "ompl/base/State.h"
 #include "ompl/base/objectives/StateCostIntegralObjective.h"
 #include "ompl/base/spaces/SE2StateSpace.h"
-#include "ompl/control/SimpleSetup.h"
-#include "ompl/control/SpaceInformation.h"
+#include "ompl/geometric/SimpleSetup.h"
 #include "rclcpp/rclcpp.hpp"
 
 namespace nav2_ompl_planner {
 
 namespace ob = ompl::base;
-namespace oc = ompl::control;
 namespace og = ompl::geometric;
 
 /**
@@ -110,11 +108,6 @@ class OMPLPlanner : public nav2_core::GlobalPlanner {
   void setBounds();
 
   /**
-   * Sets the propagator
-   */
-  void setPropagator();
-
-  /**
    * Sets the planner
    */
   void setPlanner();
@@ -161,44 +154,19 @@ class OMPLPlanner : public nav2_core::GlobalPlanner {
   double length_objective_weight_;
 
   /**
-   * Maximum linear velocity (m/s)
-   */
-  double max_lin_vel_;
-
-  /**
-   * Maximum angular velocity (rad/s)
-   */
-  double max_ang_vel_;
-
-  /**
-   * Whether or not the robot is allowed to move in reverse
-   */
-  bool reverse_driving_;
-
-  /**
    * Whether or not the planner should be allowed to plan through unknown space
    */
   bool allow_unknown_;
 
   /**
-   * Whether or not to use ODESolver when propagating states
-   */
-  bool use_ode_solver_;
-
-  /**
    * Planner simple setup pointer
    */
-  oc::SimpleSetupPtr ss_;
+  og::SimpleSetupPtr ss_;
 
   /**
    * The planner name (est, kpiece, rrt, pdst, sst)
    */
   std::string planner_name_;
-
-  /**
-   * The solver type (basic, adaptive, error)
-   */
-  std::string solver_type_;
 
   /**
    * Costmap global frame
@@ -208,12 +176,7 @@ class OMPLPlanner : public nav2_core::GlobalPlanner {
   /**
    * SE2 space pointer representing the robot pose space
    */
-  ob::StateSpacePtr pose_space_;
-
-  /**
-   * 2D real space pointer representing the control space (lin. vel., ang. vel.)
-   */
-  oc::ControlSpacePtr control_space_;
+  ob::StateSpacePtr space_;
 
   /**
    * TF buffer
