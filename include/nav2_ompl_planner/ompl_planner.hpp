@@ -40,203 +40,214 @@ namespace og = ompl::geometric;
  */
 class CostMapObjective : public ob::StateCostIntegralObjective {
  public:
+  /**
+   * @brief  Constructor
+   * @param  si The space information pointer
+   * @param  costmap The costmap to get the costs from
+   */
   CostMapObjective(const ob::SpaceInformationPtr& si, const nav2_costmap_2d::Costmap2D& costmap);
 
+  /**
+   * @brief  The cost of the state
+   * @param  s The state pointer
+   */
   ob::Cost stateCost(const ob::State* s) const override;
-
-  double x;
 
  protected:
   const nav2_costmap_2d::Costmap2D& costmap_;
 };
 
+/**
+ * @class  OMPLPlanner
+ * @brief  Constructor
+ */
 class OMPLPlanner : public nav2_core::GlobalPlanner {
  public:
   /**
-   * Constructor
+   * @brief  Constructor
    */
   OMPLPlanner();
 
   /**
-   * Destructor
+   * @brief  Destructor
    */
   ~OMPLPlanner() = default;
 
   /**
-   * Configures the plugin
-   * @param parent the node to which this plugin belongs to
-   * @param name the name of the plugin
-   * @param tf the TF buffer
-   * @param costmap_ros the costmap to be used for planning
+   * @brief  Configures the plugin
+   * @param  parent the node to which this plugin belongs to
+   * @param  name the name of the plugin
+   * @param  tf the TF buffer
+   * @param  costmap_ros the costmap to be used for planning
    */
   void configure(rclcpp_lifecycle::LifecycleNode::SharedPtr parent, std::string name,
                  std::shared_ptr<tf2_ros::Buffer> tf,
                  std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros) override;
 
   /**
-   * Activates the plugin
+   * @brief  Activates the plugin
    */
   void activate() override;
 
   /**
-   * Deactivates the plugin
+   * @brief  Deactivates the plugin
    */
   void deactivate() override;
 
   /**
-   * Cleans up the plugin
+   * @brief  Cleans up the plugin
    */
   void cleanup() override;
 
   /**
-   * Creates a plan
-   * @param start_pose the start pose of the robot
-   * @param goal_pose the goal pose of the robot
+   * @brief  Creates a plan
+   * @param  start_pose the start pose of the robot
+   * @param  goal_pose the goal pose of the robot
    */
   nav_msgs::msg::Path createPlan(const geometry_msgs::msg::PoseStamped& start,
                                  const geometry_msgs::msg::PoseStamped& goal) override;
 
  protected:
   /**
-   * Checks if a state is valid, i.e. a point is not in occupied space
-   * @param state the state pointer
-   * @returns true if the state is not in occupied space, false otherwise
+   * @brief   Checks if a state is valid, i.e. a point is not in occupied space
+   * @param   state the state pointer
+   * @return  true if the state is not in occupied space, false otherwise
    */
   bool isStateValid(const ob::State* state);
 
   /**
-   * Sets the bounds of the state space based on the costmap loaded
+   * @brief  Sets the bounds of the state space based on the costmap loaded
    */
   void setBounds();
 
   /**
-   * Sets the propagator
+   * @brief  Sets the propagator
    */
   void setPropagator();
 
   /**
-   * Sets the planner
+   * @brief  Sets the planner
    */
   void setPlanner();
 
   /**
-   * Converts a ROS pose stamped message to an OMPL state
-   * @param pose_stamped the pose stamped message
-   * @param scoped_state the OMPL state to fill
+   * @brief  Converts a ROS pose stamped message to an OMPL state
+   * @param  pose_stamped the pose stamped message
+   * @param  scoped_state the OMPL state to fill
    */
   void poseStampedToScopedState(const geometry_msgs::msg::PoseStamped& pose_stamped,
                                 ob::ScopedState<ob::SE2StateSpace>& scoped_state);
 
   /**
-   * Converts an OMPL state to a ROS pose stamped message
-   * @param scoped_state the OMPL state
-   * @param pose_stamped the pose stamped message to fill
+   * @brief  Converts an OMPL state to a ROS pose stamped message
+   * @param  scoped_state the OMPL state
+   * @param  pose_stamped the pose stamped message to fill
    */
   void scopedStateToPoseStamped(const ob::ScopedState<ob::SE2StateSpace>& scoped_state,
                                 geometry_msgs::msg::PoseStamped& pose_stamped);
 
   /**
-   * Plugin name
+   * @brief  Plugin name
    */
   std::string name_;
 
   /**
-   * Maximum amount of time given to solve the planning problem
+   * @brief  Maximum amount of time given to solve the planning problem
    */
   double timeout_;
 
   /**
-   * The problem threshold
+   * @brief  The problem threshold
    */
   double threshold_;
 
   /**
-   * The weight of the cost objective
+   * @brief  The weight of the cost objective
    */
   double cost_objective_weight_;
 
   /**
-   * The weight of the length objective
+   * @brief  The weight of the length objective
    */
   double length_objective_weight_;
 
   /**
-   * Maximum linear velocity (m/s)
+   * @brief  Maximum linear velocity (m/s)
    */
   double max_lin_vel_;
 
   /**
-   * Maximum angular velocity (rad/s)
+   * @brief  Maximum angular velocity (rad/s)
    */
   double max_ang_vel_;
 
   /**
-   * Whether or not the robot is allowed to move in reverse
+   * @brief  Whether or not the robot is allowed to move in reverse
    */
   bool reverse_driving_;
 
   /**
-   * Whether or not the planner should be allowed to plan through unknown space
+   * @brief  Whether or not the planner should be allowed to plan through unknown space
    */
   bool allow_unknown_;
 
   /**
-   * Whether or not to use ODESolver when propagating states
+   * @brief  Whether or not to use ODESolver when propagating states
    */
   bool use_ode_solver_;
 
   /**
-   * Planner simple setup pointer
+   * @brief  Planner simple setup pointer
    */
   oc::SimpleSetupPtr ss_;
 
   /**
-   * The planner name (est, kpiece, rrt, pdst, sst)
+   * @brief  The planner name (est, kpiece, rrt, pdst, sst)
    */
   std::string planner_name_;
 
   /**
-   * The solver type (basic, adaptive, error)
+   * @brief  The solver type (basic, adaptive, error)
    */
   std::string solver_type_;
 
   /**
-   * Costmap global frame
+   * @brief  Costmap global frame
    */
   std::string global_frame_;
 
   /**
-   * SE2 space pointer representing the robot pose space
+   * @brief  SE2 space pointer representing the robot pose space
    */
   ob::StateSpacePtr pose_space_;
 
   /**
-   * 2D real space pointer representing the control space (lin. vel., ang. vel.)
+   * @brief  2D real space pointer representing the control space (lin. vel., ang. vel.)
    */
   oc::ControlSpacePtr control_space_;
 
   /**
-   * TF buffer
+   * @brief  TF buffer
    */
   std::shared_ptr<tf2_ros::Buffer> tf_;
 
   /**
-   * Node pointer
+   * @brief  Node pointer
    */
   nav2_util::LifecycleNode::SharedPtr node_;
 
   /**
-   * Global costmap
+   * @brief  Global costmap
    */
   nav2_costmap_2d::Costmap2D* costmap_;
 
   /**
-   * ROS costmap
+   * @brief  ROS costmap
    */
   std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros_;
 
   /**
-   * ROS costmap subscriber
+   * @brief  ROS costmap subscriber
    */
   std::shared_ptr<nav2_costmap_2d::CostmapSubscriber> costmap_sub_;
 };

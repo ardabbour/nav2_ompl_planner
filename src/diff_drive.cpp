@@ -28,61 +28,39 @@ namespace nav2_ompl_planner
   void diffDriveKinematicODE(const oc::ODESolver::StateType &q, const oc::Control *ctrl,
                              oc::ODESolver::StateType &qdot)
   {
-    std::cout << "diffDriveKinematicODE here1" << std::endl;
     const double u = ctrl->as<oc::RealVectorControlSpace::ControlType>()->values[0];
-    std::cout << "diffDriveKinematicODE here2" << std::endl;
     const double v = ctrl->as<oc::RealVectorControlSpace::ControlType>()->values[1];
-    std::cout << "diffDriveKinematicODE here3" << std::endl;
     qdot.resize(q.size(), 0);
-    std::cout << "diffDriveKinematicODE here4" << std::endl;
     qdot[0] = cos(q[2]) * u;
-    std::cout << "diffDriveKinematicODE here5" << std::endl;
     qdot[1] = sin(q[2]) * u;
-    std::cout << "diffDriveKinematicODE here6" << std::endl;
     qdot[2] = v;
-    std::cout << "diffDriveKinematicODE here7" << std::endl;
   }
 
   void diffDriveKinematicPostIntegration(const ob::State *s __attribute__((unused)),
                                          const oc::Control *c __attribute__((unused)),
                                          const double d __attribute__((unused)), ob::State *result)
   {
-    std::cout << "diffDriveKinematicPostIntegration here1" << std::endl;
     const ob::SO2StateSpace SO2;
-    std::cout << "diffDriveKinematicPostIntegration here2" << std::endl;
     auto *so2 = result->as<ob::SE2StateSpace::StateType>()->as<ob::SO2StateSpace::StateType>(1);
-    std::cout << "diffDriveKinematicPostIntegration here3" << std::endl;
     SO2.enforceBounds(so2);
-    std::cout << "diffDriveKinematicPostIntegration here4" << std::endl;
   }
 
   void diffDrivePropagation(const ob::State *start, const oc::Control *ctrl, const double duration,
                             ob::State *result)
   {
-    std::cout << "diffDrivePropagation here1" << std::endl;
     const double x = start->as<ob::SE2StateSpace::StateType>()->getX();
-    std::cout << "diffDrivePropagation here2" << std::endl;
     const double y = start->as<ob::SE2StateSpace::StateType>()->getY();
-    std::cout << "diffDrivePropagation here3" << std::endl;
     const double yaw = start->as<ob::SE2StateSpace::StateType>()->getYaw();
-    std::cout << "diffDrivePropagation here4" << std::endl;
     const double u = ctrl->as<oc::RealVectorControlSpace::ControlType>()->values[0];
-    std::cout << "diffDrivePropagation here5" << std::endl;
     const double v = ctrl->as<oc::RealVectorControlSpace::ControlType>()->values[1];
 
-    std::cout << "diffDrivePropagation here6" << std::endl;
     result->as<ob::SE2StateSpace::StateType>()->setXY(x + ((cos(yaw) * u) * duration),
                                                       y + ((sin(yaw) * u) * duration));
-    std::cout << "diffDrivePropagation here7" << std::endl;
     result->as<ob::SE2StateSpace::StateType>()->setYaw(yaw + (v * duration));
 
-    std::cout << "diffDrivePropagation here8" << std::endl;
     const ob::SO2StateSpace SO2;
-    std::cout << "diffDrivePropagation here9" << std::endl;
     auto *so2 = result->as<ob::SE2StateSpace::StateType>()->as<ob::SO2StateSpace::StateType>(1);
-    std::cout << "diffDrivePropagation here10" << std::endl;
     SO2.enforceBounds(so2);
-    std::cout << "diffDrivePropagation here11" << std::endl;
   }
 
 } // namespace nav2_ompl_planner
