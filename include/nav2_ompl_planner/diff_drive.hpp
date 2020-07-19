@@ -18,7 +18,6 @@
 #ifndef NAV2_OMPL_PLANNER__DIFF_DRIVE_HPP_
 #define NAV2_OMPL_PLANNER__DIFF_DRIVE_HPP_
 
-
 #include "ompl/control/ODESolver.h"
 #include "ompl/control/spaces/RealVectorControlSpace.h"
 

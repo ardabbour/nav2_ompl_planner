@@ -227,6 +227,11 @@ class OMPLPlanner : public nav2_core::GlobalPlanner {
   oc::ControlSpacePtr control_space_;
 
   /**
+   * The resolution at which to check for collisions
+   */
+  double collision_checking_resolution_;
+
+  /**
    * @brief  TF buffer
    */
   std::shared_ptr<tf2_ros::Buffer> tf_;

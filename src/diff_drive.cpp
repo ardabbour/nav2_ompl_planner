@@ -19,48 +19,44 @@
 
 #include "ompl/base/spaces/SE2StateSpace.h"
 
-namespace nav2_ompl_planner
-{
+namespace nav2_ompl_planner {
 
-  DiffDriveControlSpace::DiffDriveControlSpace(const ob::StateSpacePtr &state_space)
-      : oc::RealVectorControlSpace(state_space, 2) {}
+DiffDriveControlSpace::DiffDriveControlSpace(const ob::StateSpacePtr &state_space)
+    : oc::RealVectorControlSpace(state_space, 2) {}
 
-  void diffDriveKinematicODE(const oc::ODESolver::StateType &q, const oc::Control *ctrl,
-                             oc::ODESolver::StateType &qdot)
-  {
-    const double u = ctrl->as<oc::RealVectorControlSpace::ControlType>()->values[0];
-    const double v = ctrl->as<oc::RealVectorControlSpace::ControlType>()->values[1];
-    qdot.resize(q.size(), 0);
-    qdot[0] = cos(q[2]) * u;
-    qdot[1] = sin(q[2]) * u;
-    qdot[2] = v;
-  }
+void diffDriveKinematicODE(const oc::ODESolver::StateType &q, const oc::Control *ctrl,
+                           oc::ODESolver::StateType &qdot) {
+  const double u = ctrl->as<oc::RealVectorControlSpace::ControlType>()->values[0];
+  const double v = ctrl->as<oc::RealVectorControlSpace::ControlType>()->values[1];
+  qdot.resize(q.size(), 0);
+  qdot[0] = cos(q[2]) * u;
+  qdot[1] = sin(q[2]) * u;
+  qdot[2] = v;
+}
 
-  void diffDriveKinematicPostIntegration(const ob::State *s __attribute__((unused)),
-                                         const oc::Control *c __attribute__((unused)),
-                                         const double d __attribute__((unused)), ob::State *result)
-  {
-    const ob::SO2StateSpace SO2;
-    auto *so2 = result->as<ob::SE2StateSpace::StateType>()->as<ob::SO2StateSpace::StateType>(1);
-    SO2.enforceBounds(so2);
-  }
+void diffDriveKinematicPostIntegration(const ob::State *s __attribute__((unused)),
+                                       const oc::Control *c __attribute__((unused)),
+                                       const double d __attribute__((unused)), ob::State *result) {
+  const ob::SO2StateSpace SO2;
+  auto *so2 = result->as<ob::SE2StateSpace::StateType>()->as<ob::SO2StateSpace::StateType>(1);
+  SO2.enforceBounds(so2);
+}
 
-  void diffDrivePropagation(const ob::State *start, const oc::Control *ctrl, const double duration,
-                            ob::State *result)
-  {
-    const double x = start->as<ob::SE2StateSpace::StateType>()->getX();
-    const double y = start->as<ob::SE2StateSpace::StateType>()->getY();
-    const double yaw = start->as<ob::SE2StateSpace::StateType>()->getYaw();
-    const double u = ctrl->as<oc::RealVectorControlSpace::ControlType>()->values[0];
-    const double v = ctrl->as<oc::RealVectorControlSpace::ControlType>()->values[1];
+void diffDrivePropagation(const ob::State *start, const oc::Control *ctrl, const double duration,
+                          ob::State *result) {
+  const double x = start->as<ob::SE2StateSpace::StateType>()->getX();
+  const double y = start->as<ob::SE2StateSpace::StateType>()->getY();
+  const double yaw = start->as<ob::SE2StateSpace::StateType>()->getYaw();
+  const double u = ctrl->as<oc::RealVectorControlSpace::ControlType>()->values[0];
+  const double v = ctrl->as<oc::RealVectorControlSpace::ControlType>()->values[1];
 
-    result->as<ob::SE2StateSpace::StateType>()->setXY(x + ((cos(yaw) * u) * duration),
-                                                      y + ((sin(yaw) * u) * duration));
-    result->as<ob::SE2StateSpace::StateType>()->setYaw(yaw + (v * duration));
+  result->as<ob::SE2StateSpace::StateType>()->setXY(x + ((cos(yaw) * u) * duration),
+                                                    y + ((sin(yaw) * u) * duration));
+  result->as<ob::SE2StateSpace::StateType>()->setYaw(yaw + (v * duration));
 
-    const ob::SO2StateSpace SO2;
-    auto *so2 = result->as<ob::SE2StateSpace::StateType>()->as<ob::SO2StateSpace::StateType>(1);
-    SO2.enforceBounds(so2);
-  }
+  const ob::SO2StateSpace SO2;
+  auto *so2 = result->as<ob::SE2StateSpace::StateType>()->as<ob::SO2StateSpace::StateType>(1);
+  SO2.enforceBounds(so2);
+}
 
-} // namespace nav2_ompl_planner
+}  // namespace nav2_ompl_planner
