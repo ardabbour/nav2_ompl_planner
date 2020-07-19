@@ -145,8 +145,7 @@ namespace nav2_ompl_planner
     ss_ = std::make_shared<og::SimpleSetup>(space_);
     ss_->setStateValidityChecker([this](const ob::State *s) { return this->isStateValid(s); });
     ss_->getSpaceInformation()->setStateValidityCheckingResolution(collision_checking_resolution_);
-    // setPlanner();
-    ss_->setPlanner(std::make_shared<og::LBKPIECE1>(ss_->getSpaceInformation()));
+    setPlanner();
 
     // Define and setup problem
     ob::ScopedState<ob::SE2StateSpace> start_state(space_);
