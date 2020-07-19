@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <chrono>
 
 #include "ompl/base/objectives/PathLengthOptimizationObjective.h"
 #include "ompl/geometric/planners/prm/LazyPRM.h"
@@ -49,24 +50,11 @@ namespace nav2_ompl_planner
   // TODO(Abdul Rahman Dabbour): refactor to use OMPLPlanner::isStateValid fn
   ob::Cost CostMapObjective::stateCost(const ob::State *s) const
   {
-    std::cout << "Will now get state cost!"
-              << std::endl;
     const double wx(s->as<ob::SE2StateSpace::StateType>()->getX());
     const double wy(s->as<ob::SE2StateSpace::StateType>()->getY());
     int mx, my;
-    std::cout << "Checking wx: " << wx
-              << std::endl;
-    std::cout << "Checking wy: " << wy
-              << std::endl;
     costmap_.worldToMapEnforceBounds(wx, wy, mx, my);
-    std::cout << "Corresponding mx: " << mx
-              << std::endl;
-    std::cout << "Corresponding my: " << my
-              << std::endl;
     const double cost(static_cast<double>(costmap_.getCost(mx, my)));
-    std::cout << "Cost: " << cost
-              << std::endl
-              << std::endl;
     return ob::Cost(cost);
   }
 
@@ -85,8 +73,6 @@ namespace nav2_ompl_planner
     // Get the ROS costmap pointer
     costmap_ros_ = costmap_ros;
 
-    RCLCPP_INFO(node_->get_logger(), "Set the costmap_ros pointer!");
-
     // Get ROS params
 
     // TODO(Abdul Rahman Dabbour): Make this footprint-based
@@ -99,12 +85,20 @@ namespace nav2_ompl_planner
     node_->get_parameter(name_ + ".timeout", timeout_);
 
     nav2_util::declare_parameter_if_not_declared(node_, name_ + ".threshold",
-                                                 rclcpp::ParameterValue(0.1));
+                                                 rclcpp::ParameterValue(std::numeric_limits<double>::epsilon()));
     node_->get_parameter(name_ + ".threshold", threshold_);
 
     nav2_util::declare_parameter_if_not_declared(node_, name_ + ".cost_objective_weight",
                                                  rclcpp::ParameterValue(1.0));
     node_->get_parameter(name_ + ".cost_objective_weight", cost_objective_weight_);
+
+    nav2_util::declare_parameter_if_not_declared(node_, name_ + ".collision_checking_resolution",
+                                                 rclcpp::ParameterValue(0.01));
+    node_->get_parameter(name_ + ".collision_checking_resolution", collision_checking_resolution_);
+
+    nav2_util::declare_parameter_if_not_declared(node_, name_ + ".turning_radius",
+                                                 rclcpp::ParameterValue(0.01));
+    node_->get_parameter(name_ + ".turning_radius", turning_radius_);
 
     nav2_util::declare_parameter_if_not_declared(node_, name_ + ".length_objective_weight",
                                                  rclcpp::ParameterValue(1.0));
@@ -115,10 +109,8 @@ namespace nav2_ompl_planner
     node_->get_parameter(name_ + ".allow_unknown", allow_unknown_);
 
     nav2_util::declare_parameter_if_not_declared(node_, name_ + ".planner_name",
-                                                 rclcpp::ParameterValue("auto"));
+                                                 rclcpp::ParameterValue("lbkpiece"));
     node_->get_parameter(name_ + ".planner_name", planner_name_);
-
-    RCLCPP_INFO(node_->get_logger(), "Set all the planner parameters!");
   }
 
   void OMPLPlanner::cleanup()
@@ -139,49 +131,42 @@ namespace nav2_ompl_planner
   nav_msgs::msg::Path OMPLPlanner::createPlan(const geometry_msgs::msg::PoseStamped &start,
                                               const geometry_msgs::msg::PoseStamped &goal)
   {
+    const auto start_time(std::chrono::high_resolution_clock::now());
+
     // Get the costmap
-    RCLCPP_INFO(node_->get_logger(), "Getting the costmap!");
     costmap_ = costmap_ros_->getCostmap();
-    RCLCPP_INFO(node_->get_logger(), "Getting the global frame!");
     global_frame_ = costmap_ros_->getGlobalFrameID();
 
     // Assign the pose and control spaces
-    RCLCPP_INFO(node_->get_logger(), "Setting the space!");
-    space_ = std::make_shared<ob::ReedsSheppStateSpace>();
+    space_ = std::make_shared<ob::ReedsSheppStateSpace>(turning_radius_);
     setBounds();
 
     // Create simple setup
-    RCLCPP_INFO(node_->get_logger(), "Creating the simple setup!");
     ss_ = std::make_shared<og::SimpleSetup>(space_);
-    RCLCPP_INFO(node_->get_logger(), "Setting the state validity checker!");
     ss_->setStateValidityChecker([this](const ob::State *s) { return this->isStateValid(s); });
-    RCLCPP_INFO(node_->get_logger(), "Setting the planner!");
-    setPlanner();
+    ss_->getSpaceInformation()->setStateValidityCheckingResolution(collision_checking_resolution_);
+    // setPlanner();
+    ss_->setPlanner(std::make_shared<og::LBKPIECE1>(ss_->getSpaceInformation()));
 
     // Define and setup problem
-    RCLCPP_INFO(node_->get_logger(), "Setting the start state");
     ob::ScopedState<ob::SE2StateSpace> start_state(space_);
     poseStampedToScopedState(start, start_state);
-    RCLCPP_INFO(node_->get_logger(), "Setting the goal state");
     ob::ScopedState<ob::SE2StateSpace> goal_state(space_);
     poseStampedToScopedState(goal, goal_state);
-    RCLCPP_INFO(node_->get_logger(), "Setting the start and goal states to the simple setup");
     ss_->setStartAndGoalStates(start_state, goal_state, threshold_);
-    RCLCPP_INFO(node_->get_logger(), "Setting the cost objective");
     ob::OptimizationObjectivePtr cost_objective(
         new CostMapObjective(ss_->getSpaceInformation(), *costmap_));
-    RCLCPP_INFO(node_->get_logger(), "Setting the length objective");
     ob::OptimizationObjectivePtr length_objective(
         new ob::PathLengthOptimizationObjective(ss_->getSpaceInformation()));
-    RCLCPP_INFO(node_->get_logger(), "Setting the overall optimization objective");
-    ss_->setOptimizationObjective((cost_objective_weight_ * cost_objective) +
-                                  (length_objective_weight_ * length_objective));
-    RCLCPP_INFO(node_->get_logger(), "Setting up the simple setup");
+    ob::OptimizationObjectivePtr hybrid_objective((cost_objective_weight_ * cost_objective) +
+                                                  (length_objective_weight_ * length_objective));
+    ss_->setOptimizationObjective(hybrid_objective);
     ss_->setup();
     RCLCPP_INFO(node_->get_logger(), "OMPL setup successful. Starting to create plan.");
 
     nav_msgs::msg::Path path;
-    if (ss_->solve(timeout_) == ob::PlannerStatus::EXACT_SOLUTION)
+
+    if (ss_->solve(timeout_))
     {
       RCLCPP_INFO(node_->get_logger(), "A path was found.");
 
@@ -189,8 +174,10 @@ namespace nav2_ompl_planner
       path.header.stamp = node_->now();
       path.header.frame_id = global_frame_;
 
-      solution_path.printAsMatrix(std::cout);
       RCLCPP_INFO(node_->get_logger(), "Will now convert the states into a path");
+      og::PathSimplifier path_simplifier(ss_->getSpaceInformation(), ss_->getGoal(), ss_->getOptimizationObjective());
+      path_simplifier.simplifyMax(solution_path);
+      path_simplifier.smoothBSpline(solution_path);
 
       for (const auto &state : solution_path.getStates())
       {
@@ -202,11 +189,9 @@ namespace nav2_ompl_planner
         path.poses.push_back(pose_stamped);
       }
 
-      for (const auto &pose_stamped : path.poses)
-      {
-        RCLCPP_INFO(node_->get_logger(), "x: %f, y: %f, yaw: %f", pose_stamped.pose.position.x,
-                    pose_stamped.pose.position.y, tf2::getYaw(pose_stamped.pose.orientation));
-      }
+      const auto end_time(std::chrono::high_resolution_clock::now());
+      const auto duration(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time));
+      RCLCPP_DEBUG(node_->get_logger(), "Plan calculation took %f seconds", duration.count() / 1000000.0);
     }
     else
     {
@@ -272,20 +257,6 @@ namespace nav2_ompl_planner
     bounds.setLow(1, min_wy);
     bounds.setHigh(1, max_wy);
 
-    std::cout << "Max mx: " << max_wx
-              << std::endl;
-    std::cout << "Max my: " << max_wy
-              << std::endl;
-
-    std::cout << "Min wx: " << min_wx
-              << std::endl;
-    std::cout << "Max wx: " << max_wx
-              << std::endl;
-    std::cout << "Min wy: " << min_wy
-              << std::endl;
-    std::cout << "Max wy: " << max_wy
-              << std::endl;
-
     space_->as<ob::SE2StateSpace>()->setBounds(bounds);
   }
 
@@ -296,72 +267,58 @@ namespace nav2_ompl_planner
 
     if (planner_name_ == "auto")
     {
-      RCLCPP_INFO(node_->get_logger(), "Setting planner to the OMPL default");
-      ss_->setPlanner(std::make_shared<og::LazyPRM>(ss_->getSpaceInformation()));
+      ss_->setPlanner(ob::PlannerPtr());
     }
     else if (planner_name_ == "lazyprm")
     {
-      RCLCPP_INFO(node_->get_logger(), "Setting planner to Lazy PRM");
       ss_->setPlanner(std::make_shared<og::LazyPRM>(ss_->getSpaceInformation()));
     }
     else if (planner_name_ == "lazyprmstar")
     {
-      RCLCPP_INFO(node_->get_logger(), "Setting planner to Lazy PRM*");
       ss_->setPlanner(std::make_shared<og::LazyPRMstar>(ss_->getSpaceInformation()));
     }
     else if (planner_name_ == "prm")
     {
-      RCLCPP_INFO(node_->get_logger(), "Setting planner to PRM");
       ss_->setPlanner(std::make_shared<og::PRM>(ss_->getSpaceInformation()));
     }
     else if (planner_name_ == "prmstar")
     {
-      RCLCPP_INFO(node_->get_logger(), "Setting planner to PRM*");
       ss_->setPlanner(std::make_shared<og::PRMstar>(ss_->getSpaceInformation()));
     }
     else if (planner_name_ == "informedrrtstar")
     {
-      RCLCPP_INFO(node_->get_logger(), "Setting planner to Informed RRT*");
       ss_->setPlanner(std::make_shared<og::InformedRRTstar>(ss_->getSpaceInformation()));
     }
     else if (planner_name_ == "lazyrrt")
     {
-      RCLCPP_INFO(node_->get_logger(), "Setting planner to Lazy RRT");
       ss_->setPlanner(std::make_shared<og::LazyRRT>(ss_->getSpaceInformation()));
     }
     else if (planner_name_ == "rrt")
     {
-      RCLCPP_INFO(node_->get_logger(), "Setting planner to RRT");
       ss_->setPlanner(std::make_shared<og::RRT>(ss_->getSpaceInformation()));
     }
     else if (planner_name_ == "rrtconnect")
     {
-      RCLCPP_INFO(node_->get_logger(), "Setting planner to RRTconnect");
       ss_->setPlanner(std::make_shared<og::RRTConnect>(ss_->getSpaceInformation()));
     }
     else if (planner_name_ == "rrtsharp")
     {
-      RCLCPP_INFO(node_->get_logger(), "Setting planner to RRT#.");
       ss_->setPlanner(std::make_shared<og::RRTsharp>(ss_->getSpaceInformation()));
     }
     else if (planner_name_ == "rrtstar")
     {
-      RCLCPP_INFO(node_->get_logger(), "Setting planner to RRT*.");
       ss_->setPlanner(std::make_shared<og::RRTstar>(ss_->getSpaceInformation()));
     }
     else if (planner_name_ == "bkpiece")
     {
-      RCLCPP_INFO(node_->get_logger(), "Setting planner to BKPIECE.");
       ss_->setPlanner(std::make_shared<og::BKPIECE1>(ss_->getSpaceInformation()));
     }
     else if (planner_name_ == "kpiece")
     {
-      RCLCPP_INFO(node_->get_logger(), "Setting planner to KPIECE.");
       ss_->setPlanner(std::make_shared<og::KPIECE1>(ss_->getSpaceInformation()));
     }
     else if (planner_name_ == "lbkpiece")
     {
-      RCLCPP_INFO(node_->get_logger(), "Setting planner to LBKPIECE.");
       ss_->setPlanner(std::make_shared<og::LBKPIECE1>(ss_->getSpaceInformation()));
     }
     else
@@ -389,20 +346,8 @@ namespace nav2_ompl_planner
     int mx, my;
     const double wx(state->as<ob::SE2StateSpace::StateType>()->getX());
     const double wy(state->as<ob::SE2StateSpace::StateType>()->getY());
-    std::cout << "Checking wx: " << wx
-              << std::endl;
-    std::cout << "Checking wy: " << wy
-              << std::endl;
     costmap_->worldToMapEnforceBounds(wx, wy, mx, my);
-    std::cout << "Corresponding mx: " << mx
-              << std::endl;
-    std::cout << "Corresponding my: " << my
-              << std::endl;
     const unsigned char cost(costmap_->getCost(mx, my));
-
-    std::cout << "Cost: " << (int)cost
-              << std::endl
-              << std::endl;
 
     if (cost == nav2_costmap_2d::LETHAL_OBSTACLE ||
         cost == nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE ||

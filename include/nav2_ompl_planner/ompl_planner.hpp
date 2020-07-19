@@ -154,6 +154,16 @@ class OMPLPlanner : public nav2_core::GlobalPlanner {
   double length_objective_weight_;
 
   /**
+   * The resolution at which to check for collisions
+   */
+  double collision_checking_resolution_;
+
+  /**
+   * The turning radius of the robot
+   */
+  double turning_radius_;
+
+  /**
    * Whether or not the planner should be allowed to plan through unknown space
    */
   bool allow_unknown_;
